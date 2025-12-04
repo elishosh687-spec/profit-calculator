@@ -28,9 +28,15 @@ const Calculator: React.FC<CalculatorProps> = ({ onSave }) => {
 
   // Supabase Realtime Subscription
   useEffect(() => {
+    console.log('🔌 מתחבר ל-Supabase Realtime...');
+    
     // יצירת מנוי Realtime להאזנה לשינויים בטבלת calculator_data
     const channel = supabaseClient
-      .channel('calculator-updates')
+      .channel('calculator-updates', {
+        config: {
+          broadcast: { self: true }
+        }
+      })
       .on(
         'postgres_changes',
         {
@@ -40,23 +46,44 @@ const Calculator: React.FC<CalculatorProps> = ({ onSave }) => {
           filter: 'id=eq.1'
         },
         (payload: any) => {
+          console.log('📨 קיבלתי עדכון מ-Supabase:', payload);
+          
           // כאשר מתקבל שינוי מהשותף, עדכן את התצוגה
           if (payload.new && payload.new.result) {
             try {
               const newResult = typeof payload.new.result === 'string' 
                 ? JSON.parse(payload.new.result) 
                 : payload.new.result;
+              
+              console.log('✅ מעדכן תוצאה חדשה:', newResult);
               setResult(newResult);
+              
+              // עדכן גם את השדות האחרים אם הם קיימים
+              if (newResult.customerName) setCustomerName(newResult.customerName);
+              if (newResult.date) setDate(newResult.date);
+              if (newResult.totalRevenue) setTotalRevenue(newResult.totalRevenue.toString());
+              if (newResult.eliPercentage) setEliPercent(newResult.eliPercentage);
+              if (newResult.shimonPercentage) setShimonPercent(newResult.shimonPercentage);
             } catch (error) {
-              console.error('שגיאה בעדכון התוצאה:', error);
+              console.error('❌ שגיאה בעדכון התוצאה:', error);
             }
+          } else if (payload.old) {
+            console.log('🗑️ שורה נמחקה:', payload.old);
           }
         }
       )
-      .subscribe();
+      .subscribe((status: string) => {
+        console.log('📡 סטטוס Realtime subscription:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ מחובר בהצלחה ל-Supabase Realtime!');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ שגיאה בחיבור ל-Supabase Realtime');
+        }
+      });
 
     // ניקוי המנוי כאשר הקומפוננטה נסגרת
     return () => {
+      console.log('🔌 מנתק חיבור ל-Supabase Realtime...');
       supabaseClient.removeChannel(channel);
     };
   }, []);
@@ -115,26 +142,35 @@ const Calculator: React.FC<CalculatorProps> = ({ onSave }) => {
 
     // שמירה ל-Supabase - עדכון השורה עם ID=1
     try {
-      const { error } = await supabaseClient
+      console.log('💾 שומר ל-Supabase...', res);
+      
+      const { data, error } = await supabaseClient
         .from('calculator_data')
         .update({ result: res })
-        .eq('id', 1);
+        .eq('id', 1)
+        .select();
 
       if (error) {
-        console.error('שגיאה בשמירה ל-Supabase:', error);
+        console.error('❌ שגיאה בשמירה ל-Supabase:', error);
         // אם השורה לא קיימת, ננסה ליצור אותה
-        if (error.code === 'PGRST116' || error.message.includes('No rows')) {
-          const { error: insertError } = await supabaseClient
+        if (error.code === 'PGRST116' || error.message.includes('No rows') || error.message.includes('not found')) {
+          console.log('📝 יוצר שורה חדשה...');
+          const { data: insertData, error: insertError } = await supabaseClient
             .from('calculator_data')
-            .insert({ id: 1, result: res });
+            .insert({ id: 1, result: res })
+            .select();
           
           if (insertError) {
-            console.error('שגיאה ביצירת שורה חדשה:', insertError);
+            console.error('❌ שגיאה ביצירת שורה חדשה:', insertError);
+          } else {
+            console.log('✅ שורה חדשה נוצרה בהצלחה:', insertData);
           }
         }
+      } else {
+        console.log('✅ נשמר בהצלחה ל-Supabase:', data);
       }
     } catch (error) {
-      console.error('שגיאה בשמירה ל-Supabase:', error);
+      console.error('❌ שגיאה בשמירה ל-Supabase:', error);
     }
   };
 
